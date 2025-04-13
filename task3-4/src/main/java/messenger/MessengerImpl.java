@@ -5,18 +5,21 @@ import io.grpc.stub.StreamObserver;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class MessengerImpl extends MessengerServiceGrpc.MessengerServiceImplBase {
+public class MessengerImpl extends MessengerServiceGrpc.MessengerServiceImplBase
+{
     private final Map<String, StreamObserver<Messenger.MessageResponse>> listeners = new ConcurrentHashMap<>();
 
     @Override
-    public void sendMessage(Messenger.MessageRequest request, StreamObserver<Messenger.SendResponse> responseObserver) {
+    public void sendMessage(Messenger.MessageRequest request, StreamObserver<Messenger.SendResponse> responseObserver)
+    {
         Messenger.MessageResponse msg = Messenger.MessageResponse.newBuilder()
                 .setFrom(request.getFrom())
                 .setContent(request.getContent())
                 .build();
 
         StreamObserver<Messenger.MessageResponse> receiver = listeners.get(request.getTo());
-        if (receiver != null) {
+        if (receiver != null)
+        {
             receiver.onNext(msg);
         }
 
@@ -26,7 +29,8 @@ public class MessengerImpl extends MessengerServiceGrpc.MessengerServiceImplBase
     }
 
     @Override
-    public void receiveMessages(Messenger.ReceiveRequest request, StreamObserver<Messenger.MessageResponse> responseObserver) {
+    public void receiveMessages(Messenger.ReceiveRequest request, StreamObserver<Messenger.MessageResponse> responseObserver)
+    {
         listeners.put(request.getUsername(), responseObserver);
     }
 }

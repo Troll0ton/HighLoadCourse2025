@@ -7,7 +7,8 @@ import java.io.IOException;
 
 public class Main
 {
-    public static void main(String[] args) throws IOException, InterruptedException {
+    public static void main(String[] args) throws IOException, InterruptedException
+    {
         Server server = ServerBuilder.forPort(9090)
                 .addService(new MessengerImpl())
                 .build();

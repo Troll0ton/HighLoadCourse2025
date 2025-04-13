@@ -8,7 +8,8 @@ import java.util.Scanner;
 
 public class Client
 {
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Exception
+    {
         Scanner scanner = new Scanner(System.in);
 
         ManagedChannel channel = ManagedChannelBuilder.forAddress("localhost", 9090)
@@ -22,18 +23,29 @@ public class Client
         String nickname = scanner.nextLine();
 
         asyncStub.receiveMessages(Messenger.ReceiveRequest.newBuilder().setUsername(nickname).build(),
-                new StreamObserver<Messenger.MessageResponse>() {
+                new StreamObserver<Messenger.MessageResponse>()
+                {
                     @Override
-                    public void onNext(Messenger.MessageResponse msg) {
+                    public void onNext(Messenger.MessageResponse msg)
+                    {
                         System.out.println("\n[" + msg.getFrom() + "]: " + msg.getContent());
                         System.out.print("To: ");
                     }
 
-                    @Override public void onError(Throwable t) { t.printStackTrace(); }
-                    @Override public void onCompleted() {}
+                    @Override
+                    public void onError(Throwable t)
+                    {
+                        t.printStackTrace();
+                    }
+
+                    @Override
+                    public void onCompleted()
+                    {
+                    }
                 });
 
-        while (true) {
+        while (true)
+        {
             System.out.print("To: ");
             String to = scanner.nextLine();
             System.out.print("Message: ");
