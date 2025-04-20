@@ -5,12 +5,15 @@ package messenger;
 service MessengerService {
   rpc SendMessage (MessageRequest) returns (SendResponse);
   rpc ReceiveMessages (ReceiveRequest) returns (stream MessageResponse);
+  rpc Connect (ConnectRequest) returns (ConnectResponse);
+  rpc Disconnect (DisconnectRequest) returns (Empty);
 }
 
 message MessageRequest {
   string from = 1;
   string to = 2;
   string content = 3;
+  bool secret = 4;
 }
 
 message SendResponse {
@@ -24,4 +27,21 @@ message ReceiveRequest {
 message MessageResponse {
   string from = 1;
   string content = 2;
+  bool system = 3;
+  bool secret = 4;
+  bool delete = 5;
 }
+
+message ConnectRequest {
+  string username = 1;
+}
+
+message ConnectResponse {
+  repeated string users = 1;
+}
+
+message DisconnectRequest {
+  string username = 1;
+}
+
+message Empty {}
