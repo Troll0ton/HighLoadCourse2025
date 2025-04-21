@@ -81,7 +81,6 @@ public class Client
 
                             if (msg.getDelete())
                             {
-                                // 👇 FIX: Determine the right chat tab (whether you're sender or receiver)
                                 String chatWith = msg.getFrom().equals(username) ? msg.getTo() : msg.getFrom();
                                 JTextPane area = chatAreas.get(chatWith);
                                 if (area != null)
@@ -99,7 +98,7 @@ public class Client
                                     }
                                     catch (Exception e)
                                     {
-                                        e.printStackTrace();
+
                                     }
                                 }
                                 return;
@@ -126,7 +125,7 @@ public class Client
                     @Override
                     public void onError(Throwable t)
                     {
-                        t.printStackTrace();
+
                     }
 
                     @Override
@@ -144,6 +143,19 @@ public class Client
         userPanel.setPreferredSize(new Dimension(150, 0));
         JScrollPane userScroll = new JScrollPane(userPanel);
 
+        JButton toggleButton = getJButton();
+
+        JPanel leftPanel = new JPanel(new BorderLayout());
+        leftPanel.add(userScroll, BorderLayout.CENTER);
+        leftPanel.add(toggleButton, BorderLayout.SOUTH);
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, chatPanel);
+        chatFrame.add(splitPane);
+        chatFrame.setVisible(true);
+    }
+
+    private static JButton getJButton()
+    {
         JButton toggleButton = new JButton("Disconnect");
         toggleButton.addActionListener(e ->
         {
@@ -162,14 +174,7 @@ public class Client
                 connected = true;
             }
         });
-
-        JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.add(userScroll, BorderLayout.CENTER);
-        leftPanel.add(toggleButton, BorderLayout.SOUTH);
-
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, chatPanel);
-        chatFrame.add(splitPane);
-        chatFrame.setVisible(true);
+        return toggleButton;
     }
 
     private static void addUserButton(String target)
@@ -215,7 +220,7 @@ public class Client
                 @Override
                 public void onError(Throwable throwable)
                 {
-                    throwable.printStackTrace();
+
                 }
 
                 @Override
@@ -253,7 +258,7 @@ public class Client
         }
         catch (Exception e)
         {
-            e.printStackTrace();
+
         }
     }
 
@@ -271,7 +276,7 @@ public class Client
         }
         catch (Exception e)
         {
-            e.printStackTrace();
+
         }
     }
 }
