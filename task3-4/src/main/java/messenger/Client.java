@@ -7,9 +7,8 @@ import io.grpc.stub.StreamObserver;
 import javax.swing.*;
 import javax.swing.text.Style;
 import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,7 +24,6 @@ public class Client
     private static MessengerServiceGrpc.MessengerServiceBlockingStub blockingStub;
     private static ManagedChannel channel;
     private static String username;
-    private static StreamObserver<Messenger.MessageResponse> streamObserver;
     private static boolean connected = true;
 
     public static void main(String[] args)
@@ -34,28 +32,29 @@ public class Client
         if (username == null || username.trim().isEmpty()) return;
 
         chatFrame.setTitle("Messenger - " + username);
-
         setupChannelAndStub();
         setupUI();
         connectToServer();
     }
 
-    private static void setupChannelAndStub() {
+    private static void setupChannelAndStub()
+    {
         channel = ManagedChannelBuilder.forAddress("localhost", 9090)
                 .usePlaintext()
                 .build();
-
         asyncStub = MessengerServiceGrpc.newStub(channel);
         blockingStub = MessengerServiceGrpc.newBlockingStub(channel);
     }
 
-    private static void connectToServer() {
+    private static void connectToServer()
+    {
         Messenger.ConnectRequest connectRequest = Messenger.ConnectRequest.newBuilder().setUsername(username).build();
         Messenger.ConnectResponse response = blockingStub.connect(connectRequest);
 
-        List<String> users = response.getUsersList();
-        for (String user : users) {
-            if (!user.equals(username)) {
+        for (String user : response.getUsersList())
+        {
+            if (!user.equals(username))
+            {
                 addUserButton(user);
             }
         }
@@ -63,62 +62,100 @@ public class Client
         startReceivingMessages();
     }
 
-    private static void startReceivingMessages() {
-        streamObserver = new StreamObserver<>()
-        {
-            @Override
-            public void onNext(Messenger.MessageResponse msg)
-            {
-                SwingUtilities.invokeLater(() ->
+    private static void startReceivingMessages()
+    {
+        asyncStub.receiveMessages(Messenger.ReceiveRequest.newBuilder().setUsername(username).build(),
+                new StreamObserver<>()
                 {
-                    if (msg.getSystem()) {
-                        if (!chatAreas.containsKey(msg.getFrom()) && !msg.getFrom().equals(username)) {
-                            addUserButton(msg.getFrom());
-                        }
-                    } else if (msg.getDelete()) {
-                        JTextPane area = chatAreas.get(msg.getFrom());
-                        if (area != null) {
-                            area.setText(area.getText().replaceFirst("(?s)\\[" + msg.getFrom() + "]\\: .*?\\n", ""));
-                        }
-                    } else {
-                        JTextPane area = chatAreas.get(msg.getFrom());
-                        if (area != null) {
-                            appendMessage(area, "[" + msg.getFrom() + "]: " + msg.getContent(), msg.getSecret());
-                        }
+                    @Override
+                    public void onNext(Messenger.MessageResponse msg)
+                    {
+                        SwingUtilities.invokeLater(() ->
+                        {
+                            System.out.println("[DEBUG] Received message: " +
+                                    "from=" + msg.getFrom() +
+                                    ", content=\"" + msg.getContent() + "\"" +
+                                    ", delete=" + msg.getDelete() +
+                                    ", secret=" + msg.getSecret() +
+                                    ", system=" + msg.getSystem());
+
+                            if (msg.getDelete())
+                            {
+                                // 👇 FIX: Determine the right chat tab (whether you're sender or receiver)
+                                String chatWith = msg.getFrom().equals(username) ? msg.getTo() : msg.getFrom();
+                                JTextPane area = chatAreas.get(chatWith);
+                                if (area != null)
+                                {
+                                    try
+                                    {
+                                        var doc = area.getStyledDocument();
+                                        String target = "[" + (msg.getFrom().equals(username) ? "You" : msg.getFrom()) + "]: " + msg.getContent() + "\n";
+                                        String fullText = doc.getText(0, doc.getLength());
+                                        int start = fullText.indexOf(target);
+                                        if (start != -1)
+                                        {
+                                            doc.remove(start, target.length());
+                                        }
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        e.printStackTrace();
+                                    }
+                                }
+                                return;
+                            }
+
+                            if (msg.getSystem())
+                            {
+                                if (!chatAreas.containsKey(msg.getFrom()) && !msg.getFrom().equals(username))
+                                {
+                                    addUserButton(msg.getFrom());
+                                }
+                            }
+                            else
+                            {
+                                JTextPane pane = chatAreas.get(msg.getFrom());
+                                if (pane != null)
+                                {
+                                    appendMessage(pane, "[" + msg.getFrom() + "]: " + msg.getContent(), msg.getSecret());
+                                }
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(Throwable t)
+                    {
+                        t.printStackTrace();
+                    }
+
+                    @Override
+                    public void onCompleted()
+                    {
                     }
                 });
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                t.printStackTrace();
-            }
-
-            @Override
-            public void onCompleted() {}
-        };
-
-        asyncStub.receiveMessages(Messenger.ReceiveRequest.newBuilder().setUsername(username).build(), streamObserver);
     }
 
     private static void setupUI()
     {
-        JFrame frame = chatFrame;
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(600, 400);
+        chatFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        chatFrame.setSize(600, 400);
 
         userPanel.setPreferredSize(new Dimension(150, 0));
         JScrollPane userScroll = new JScrollPane(userPanel);
 
         JButton toggleButton = new JButton("Disconnect");
-        toggleButton.addActionListener(e -> {
-            if (connected) {
-                Messenger.DisconnectRequest req = Messenger.DisconnectRequest.newBuilder().setUsername(username).build();
-                blockingStub.disconnect(req);
+        toggleButton.addActionListener(e ->
+        {
+            if (connected)
+            {
+                blockingStub.disconnect(Messenger.DisconnectRequest.newBuilder().setUsername(username).build());
                 channel.shutdownNow();
                 toggleButton.setText("Reconnect");
                 connected = false;
-            } else {
+            }
+            else
+            {
                 setupChannelAndStub();
                 connectToServer();
                 toggleButton.setText("Disconnect");
@@ -131,8 +168,8 @@ public class Client
         leftPanel.add(toggleButton, BorderLayout.SOUTH);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, chatPanel);
-        frame.add(splitPane);
-        frame.setVisible(true);
+        chatFrame.add(splitPane);
+        chatFrame.setVisible(true);
     }
 
     private static void addUserButton(String target)
@@ -149,8 +186,10 @@ public class Client
         JTextField inputField = new JTextField();
         JCheckBox secretBox = new JCheckBox("Secret");
 
-        inputField.addActionListener(e -> {
-            if (!connected) {
+        inputField.addActionListener(e ->
+        {
+            if (!connected)
+            {
                 JOptionPane.showMessageDialog(chatFrame, "You are disconnected!", "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
@@ -166,13 +205,23 @@ public class Client
                     .setSecret(secretBox.isSelected())
                     .build();
 
-            asyncStub.sendMessage(msg, new StreamObserver<>() {
+            asyncStub.sendMessage(msg, new StreamObserver<>()
+            {
                 @Override
-                public void onNext(Messenger.SendResponse sendResponse) {}
+                public void onNext(Messenger.SendResponse sendResponse)
+                {
+                }
+
                 @Override
-                public void onError(Throwable throwable) { throwable.printStackTrace(); }
+                public void onError(Throwable throwable)
+                {
+                    throwable.printStackTrace();
+                }
+
                 @Override
-                public void onCompleted() {}
+                public void onCompleted()
+                {
+                }
             });
 
             appendMessage(chatPane, "[You]: " + content, secretBox.isSelected());
@@ -193,13 +242,35 @@ public class Client
         chatFrame.revalidate();
     }
 
-    private static void appendMessage(JTextPane pane, String message, boolean isSecret) {
-        try {
-            var doc = pane.getStyledDocument();
-            Style style = pane.addStyle("", null);
+    private static void appendMessage(JTextPane pane, String message, boolean isSecret)
+    {
+        try
+        {
+            StyledDocument doc = pane.getStyledDocument();
+            Style style = pane.addStyle("Style", null);
             StyleConstants.setForeground(style, isSecret ? Color.RED : Color.BLACK);
             doc.insertString(doc.getLength(), message + "\n", style);
-        } catch (Exception e) {
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+    }
+
+    private static void removeMessage(JTextPane pane, String message)
+    {
+        try
+        {
+            StyledDocument doc = pane.getStyledDocument();
+            String fullText = doc.getText(0, doc.getLength());
+            int index = fullText.indexOf(message);
+            if (index >= 0)
+            {
+                doc.remove(index, message.length());
+            }
+        }
+        catch (Exception e)
+        {
             e.printStackTrace();
         }
     }

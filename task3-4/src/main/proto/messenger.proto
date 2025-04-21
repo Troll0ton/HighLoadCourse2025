@@ -26,10 +26,11 @@ message ReceiveRequest {
 
 message MessageResponse {
   string from = 1;
-  string content = 2;
-  bool system = 3;
-  bool secret = 4;
-  bool delete = 5;
+  string to = 2;
+  string content = 3;
+  bool system = 4;
+  bool secret = 5;
+  bool delete = 6;
 }
 
 message ConnectRequest {
