@@ -2,17 +2,17 @@ package messenger;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import redis.clients.jedis.Jedis;
 
 import java.io.IOException;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main
 {
@@ -22,16 +22,29 @@ public class Main
 
     private static final Jedis redis = new Jedis("localhost", 6379);
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private static final Map<String, String> channels = new ConcurrentHashMap<>();
+    private static final Map<String, AtomicInteger> channelMessageCounts = new ConcurrentHashMap<>();
+
+    private static final Map<String, Set<StreamObserver<Messenger.MessageResponse>>> channelSubscribers = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws IOException, InterruptedException
     {
+        int workerCount = args.length > 0 ? Integer.parseInt(args[0]) : 1;
+        Server server = startServer(workerCount);
+        server.awaitTermination();
+    }
+
+    public static Server startServer(int workerCount) throws IOException, InterruptedException
+    {
         Server server = ServerBuilder.forPort(9090)
+                .executor(Executors.newFixedThreadPool(workerCount))
                 .addService(new MessengerServiceImpl())
                 .build();
 
         server.start();
         System.out.println("[SERVER] Started on port 9090");
-        server.awaitTermination();
+
+        return server;
     }
 
     public static class MessengerServiceImpl extends MessengerServiceGrpc.MessengerServiceImplBase
@@ -142,6 +155,77 @@ public class Main
         }
 
         @Override
+        public void getChannelStats(Messenger.ChannelStatsRequest request, StreamObserver<Messenger.ChannelStatsResponse> responseObserver)
+        {
+            String channelId = request.getChannelId();
+            int count = channelMessageCounts.getOrDefault(channelId, new AtomicInteger(0)).get();
+
+            Messenger.ChannelStatsResponse response = Messenger.ChannelStatsResponse.newBuilder()
+                    .setTotalMessages(count)
+                    .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void sendChannelMessage(Messenger.ChannelMessageRequest request,
+                                       StreamObserver<Messenger.SendResponse> responseObserver)
+        {
+            String channelId = request.getChannelId();
+            String from = request.getFrom();
+            String content = request.getContent();
+
+            channelMessageCounts.computeIfAbsent(channelId, k -> new AtomicInteger()).incrementAndGet();
+
+            Messenger.MessageResponse msg = Messenger.MessageResponse.newBuilder()
+                    .setFrom(from)
+                    .setContent(content)
+                    .setSystem(false)
+                    .build();
+
+            Set<StreamObserver<Messenger.MessageResponse>> subscribers =
+                    channelSubscribers.getOrDefault(channelId, Collections.emptySet());
+
+            Iterator<StreamObserver<Messenger.MessageResponse>> it = subscribers.iterator();
+            while (it.hasNext())
+            {
+                StreamObserver<Messenger.MessageResponse> obs = it.next();
+                try
+                {
+                    obs.onNext(msg);
+                }
+                catch (RuntimeException ex)
+                {
+                    it.remove();
+                }
+            }
+
+            responseObserver.onNext(
+                    Messenger.SendResponse.newBuilder().setStatus("Delivered").build()
+            );
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void receiveChannelMessages(Messenger.ChannelReceiveRequest request,
+                                           StreamObserver<Messenger.MessageResponse> responseObserver)
+        {
+            String channelId = request.getChannelId();
+            ServerCallStreamObserver<Messenger.MessageResponse> serverObs =
+                    (ServerCallStreamObserver<Messenger.MessageResponse>) responseObserver;
+
+            serverObs.setOnCancelHandler(() ->
+                    channelSubscribers.getOrDefault(channelId, Collections.emptySet())
+                            .remove(responseObserver)
+            );
+
+            channelSubscribers
+                    .computeIfAbsent(channelId, k -> ConcurrentHashMap.newKeySet())
+                    .add(responseObserver);
+        }
+
+        @Override
         public void disconnect(Messenger.DisconnectRequest request, StreamObserver<Messenger.Empty> responseObserver)
         {
             String username = request.getUsername();
@@ -175,6 +259,35 @@ public class Main
             }
 
             responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void createChannel(Messenger.CreateChannelRequest request, StreamObserver<Messenger.Empty> responseObserver)
+        {
+            String id = request.getName();
+            String name = request.getName();
+            String creator = request.getCreator();
+            List<String> tags = request.getTagsList();
+
+            channels.put(id, creator);
+            redis.hset("channel:" + id, "creator", creator);
+            redis.hset("channel:" + id, "tags", String.join(",", tags));
+
+            Messenger.MessageResponse broadcast = Messenger.MessageResponse.newBuilder()
+                    .setFrom(creator)
+                    .setContent(name)
+                    .setSystem(true)
+                    .setTo("CHANNEL:" + id)
+                    .addAllTags(tags)
+                    .build();
+
+            for (Map.Entry<String, StreamObserver<Messenger.MessageResponse>> entry : clients.entrySet())
+            {
+                entry.getValue().onNext(broadcast);
+            }
+
+            responseObserver.onNext(Messenger.Empty.newBuilder().build());
             responseObserver.onCompleted();
         }
     }
