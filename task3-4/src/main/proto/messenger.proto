@@ -7,6 +7,10 @@ service MessengerService {
   rpc ReceiveMessages (ReceiveRequest) returns (stream MessageResponse);
   rpc Connect (ConnectRequest) returns (ConnectResponse);
   rpc Disconnect (DisconnectRequest) returns (Empty);
+  rpc CreateChannel (CreateChannelRequest) returns (Empty);
+  rpc SendChannelMessage (ChannelMessageRequest) returns (SendResponse);
+  rpc ReceiveChannelMessages (ChannelReceiveRequest) returns (stream MessageResponse);
+  rpc GetChannelStats(ChannelStatsRequest) returns (ChannelStatsResponse);
 }
 
 message MessageRequest {
@@ -31,6 +35,7 @@ message MessageResponse {
   bool system = 4;
   bool secret = 5;
   bool delete = 6;
+  repeated string tags = 7;
 }
 
 message ConnectRequest {
@@ -46,3 +51,28 @@ message DisconnectRequest {
 }
 
 message Empty {}
+
+message CreateChannelRequest {
+  string creator = 1;
+  string name = 2;
+  repeated string tags = 3;
+}
+
+message ChannelMessageRequest {
+  string from = 1;
+  string channel_id = 2;
+  string content = 3;
+}
+
+message ChannelReceiveRequest {
+  string username = 1;
+  string channel_id = 2;
+}
+
+message ChannelStatsRequest {
+  string channel_id = 1;
+}
+
+message ChannelStatsResponse {
+  int32 total_messages = 1;
+}
