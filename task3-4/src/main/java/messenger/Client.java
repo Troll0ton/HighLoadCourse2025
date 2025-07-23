@@ -9,6 +9,8 @@ import javax.swing.text.Style;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
 import java.awt.*;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -106,6 +108,19 @@ public class Client
 
                             if (msg.getSystem())
                             {
+                                if (msg.getTo().startsWith("CHANNEL:"))
+                                {
+                                    String channelId = msg.getTo().substring("CHANNEL:".length());
+                                    String channelName = msg.getContent();
+                                    String creator = msg.getFrom();
+                                    List<String> tags = msg.getTagsList();
+
+                                    if (!chatAreas.containsKey(channelId))
+                                    {
+                                        addChannel(channelId, channelName, creator, tags);
+                                    }
+                                }
+
                                 if (!chatAreas.containsKey(msg.getFrom()) && !msg.getFrom().equals(username))
                                 {
                                     addUserButton(msg.getFrom());
@@ -135,6 +150,129 @@ public class Client
                 });
     }
 
+    private static void addChannel(String id, String name, String creator, List<String> tags)
+    {
+        JTextPane chatPane = new JTextPane();
+        chatPane.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(chatPane);
+
+        JTextField inputField = new JTextField();
+        inputField.setEnabled(username.equals(creator));
+        JCheckBox secretBox = new JCheckBox("Secret");
+        secretBox.setEnabled(username.equals(creator));
+
+        inputField.addActionListener(e ->
+        {
+            String content = inputField.getText();
+            if (content.isBlank()) return;
+            inputField.setText("");
+
+            Messenger.ChannelMessageRequest msg = Messenger.ChannelMessageRequest.newBuilder()
+                    .setFrom(username)
+                    .setChannelId(id)
+                    .setContent(content)
+                    .build();
+
+            asyncStub.sendChannelMessage(msg, new StreamObserver<>()
+            {
+                public void onNext(Messenger.SendResponse res)
+                {
+                }
+
+                public void onError(Throwable t)
+                {
+                }
+
+                public void onCompleted()
+                {
+                }
+            });
+
+            appendMessage(chatPane, "[You]: " + content, secretBox.isSelected());
+        });
+
+        JPanel bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.add(inputField, BorderLayout.CENTER);
+        bottomPanel.add(secretBox, BorderLayout.EAST);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(scrollPane, BorderLayout.CENTER);
+        panel.add(bottomPanel, BorderLayout.SOUTH);
+
+        JLabel tagLabel = new JLabel("Tags: " + String.join(", ", tags));
+        JButton statsButton = new JButton("View Stats");
+        statsButton.addActionListener(e -> showChannelStats(id));
+
+        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.add(tagLabel, BorderLayout.WEST);
+        topPanel.add(statsButton, BorderLayout.EAST);
+
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        chatAreas.put(id, chatPane);
+        chatPanel.add(panel, id);
+
+        JButton channelButton = new JButton("# " + name);
+        channelButton.addActionListener(e -> chatLayout.show(chatPanel, id));
+        userPanel.add(channelButton);
+
+        startReceivingChannelMessages(id, name);
+        chatFrame.revalidate();
+    }
+
+
+    private static void showChannelStats(String channelId)
+    {
+        Messenger.ChannelStatsRequest request = Messenger.ChannelStatsRequest.newBuilder()
+                .setChannelId(channelId)
+                .build();
+
+        Messenger.ChannelStatsResponse response = blockingStub.getChannelStats(request);
+
+        String statsMessage = "Total messages in channel: " + response.getTotalMessages();
+
+        JOptionPane.showMessageDialog(chatFrame, statsMessage, "Channel Statistics", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private static void startReceivingChannelMessages(String channelId, String channelName)
+    {
+        asyncStub.receiveChannelMessages(Messenger.ChannelReceiveRequest.newBuilder()
+                .setUsername(username)
+                .setChannelId(channelId)
+                .build(), new StreamObserver<>()
+        {
+            @Override
+            public void onNext(Messenger.MessageResponse msg)
+            {
+                SwingUtilities.invokeLater(() ->
+                {
+                    if (msg.getFrom().equals(username))
+                    {
+                        return;
+                    }
+
+                    JTextPane pane = chatAreas.get(channelId);
+                    if (pane != null)
+                    {
+                        appendMessage(pane, "[" + msg.getFrom() + "]: " + msg.getContent(), msg.getSecret());
+                    }
+                });
+            }
+
+            @Override
+            public void onError(Throwable t)
+            {
+
+            }
+
+            @Override
+            public void onCompleted()
+            {
+
+            }
+        });
+    }
+
     private static void setupUI()
     {
         chatFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -146,12 +284,39 @@ public class Client
         JButton toggleButton = getJButton();
 
         JPanel leftPanel = new JPanel(new BorderLayout());
+
+        JButton createChannelButton = new JButton("Create Channel");
+        createChannelButton.addActionListener(e -> createChannelDialog());
+        leftPanel.add(createChannelButton, BorderLayout.NORTH);
+
         leftPanel.add(userScroll, BorderLayout.CENTER);
         leftPanel.add(toggleButton, BorderLayout.SOUTH);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, chatPanel);
         chatFrame.add(splitPane);
         chatFrame.setVisible(true);
+    }
+
+    private static void createChannelDialog()
+    {
+        String name = JOptionPane.showInputDialog(chatFrame, "Channel name:");
+        if (name == null || name.isBlank()) return;
+
+        String tagInput = JOptionPane.showInputDialog(chatFrame, "Tags (comma-separated):");
+        if (tagInput == null) return;
+        List<String> tags = Arrays.stream(tagInput.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+
+        Messenger.CreateChannelRequest req = Messenger.CreateChannelRequest.newBuilder()
+                .setCreator(username)
+                .setName(name)
+                .addAllTags(tags)
+                .build();
+
+        blockingStub.createChannel(req);
+
     }
 
     private static JButton getJButton()
@@ -237,6 +402,7 @@ public class Client
         bottomPanel.add(secretBox, BorderLayout.EAST);
 
         JPanel panel = new JPanel(new BorderLayout());
+
         panel.add(scrollPane, BorderLayout.CENTER);
         panel.add(bottomPanel, BorderLayout.SOUTH);
 
